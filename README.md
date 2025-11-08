@@ -71,8 +71,9 @@ fg 1
 ---
 
 ## 🤝 Contributors
-
-* **Your Name** – Developer & Author
+ANANYA RAY
+2241018100
+ITER SOA UNIVERSITY
 
 ---
 
