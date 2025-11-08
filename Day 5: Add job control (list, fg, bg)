@@ -1,0 +1,71 @@
+#include <bits/stdc++.h>
+#include <unistd.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <termios.h>
+using namespace std;
+
+
+struct Job { int id; pid_t pgid; string cmd; bool running; };
+static vector<Job> jobs; static int next_job_id=1; static pid_t shell_pgid; static int shell_terminal;
+
+
+void init_shell(){
+shell_terminal = STDIN_FILENO;
+shell_pgid = getpid();
+// put shell in its own process group
+if(setpgid(shell_pgid, shell_pgid) < 0) perror("setpgid");
+tcsetpgrp(shell_terminal, shell_pgid);
+}
+
+
+void sigchld_handler(int){
+int saved = errno;
+while(true){ int status; pid_t pid = waitpid(-1, &status, WNOHANG); if(pid<=0) break; // mark job
+for(auto &j: jobs) if(j.pgid==pid || pid>0){ /* best-effort: remove if group exited */ }
+}
+errno = saved;
+}
+
+
+vector<string> split_simple(const string &s){ vector<string> t; string cur; for(char c:s){ if(isspace((unsigned char)c)){ if(!cur.empty()){ t.push_back(cur); cur.clear(); } } else cur.push_back(c);} if(!cur.empty()) t.push_back(cur); return t; }
+
+
+Job* find_job_by_gid(pid_t pgid){ for(auto &j: jobs) if(j.pgid==pgid) return &j; return nullptr; }
+
+
+int main(){
+init_shell(); signal(SIGCHLD, sigchld_handler);
+string line;
+while(true){ cout<<"d5sh> "; if(!getline(cin,line)) break; if(line=="exit") break; if(line.empty()) continue;
+auto toks = split_simple(line);
+if(toks.empty()) continue;
+if(toks[0]=="jobs"){ for(auto &j: jobs) cout<<"["<<j.id<<"] pgid="<<j.pgid<<" "<<j.cmd<<"\n"; continue; }
+if(toks[0]=="fg" && toks.size()>1){ int id = stoi(toks[1]); auto it = find_if(jobs.begin(), jobs.end(),[id](const Job &j){ return j.id==id; }); if(it!=jobs.end()){ // bring to fg
+tcsetpgrp(shell_terminal, it->pgid);
+kill(-it->pgid, SIGCONT);
+int status; waitpid(-it->pgid, &status, WUNTRACED);
+tcsetpgrp(shell_terminal, shell_pgid);
+}
+continue; }
+if(toks[0]=="bg" && toks.size()>1){ int id = stoi(toks[1]); auto it = find_if(jobs.begin(), jobs.end(),[id](const Job &j){ return j.id==id; }); if(it!=jobs.end()){ kill(-it->pgid, SIGCONT); it->running = true; } continue; }
+bool background = false; if(toks.back()=="&"){ background=true; toks.pop_back(); }
+pid_t pid = fork();
+if(pid==0){ // child
+setpgid(0,0);
+if(!background) tcsetpgrp(shell_terminal, getpgrp());
+vector<char*> argv(toks.size()+1);
+for(size_t i=0;i<toks.size();++i) argv[i]=strdup(toks[i].c_str()); argv[toks.size()]=nullptr;
+execvp(argv[0], argv.data()); perror("exec"); exit(127);
+} else if(pid>0){ setpgid(pid, pid); // new group
+if(background){ jobs.push_back({next_job_id++, pid, line, true}); cout<<"["<<next_job_id-1<<"] "<<pid<<"\n"; }
+else {
+// foreground: give terminal, wait
+tcsetpgrp(shell_terminal, pid);
+int status; waitpid(pid, &status, WUNTRACED);
+tcsetpgrp(shell_terminal, shell_pgid);
+}
+} else perror("fork");
+}
+return 0;
+}
