@@ -1,0 +1,49 @@
+#include <bits/stdc++.h>
+#include <unistd.h>
+#include <sys/wait.h>
+using namespace std;
+
+
+vector<string> tokenize_line(const string &line){
+vector<string> tokens; string cur; bool in_sq=false, in_dq=false;
+for(char c: line){
+if(c=='\'' && !in_dq){ in_sq=!in_sq; if(!in_sq){ tokens.push_back(cur); cur.clear(); } continue; }
+if(c=='\"' && !in_sq){ in_dq=!in_dq; if(!in_dq){ tokens.push_back(cur); cur.clear(); } continue; }
+if(!in_sq && !in_dq && isspace((unsigned char)c)){
+if(!cur.empty()){ tokens.push_back(cur); cur.clear(); }
+} else cur.push_back(c);
+}
+if(!cur.empty()) tokens.push_back(cur);
+return tokens;
+}
+
+
+int main(){
+string line;
+while(true){
+cout<<"d2sh> ";
+if(!getline(cin,line)) break;
+auto tokens = tokenize_line(line);
+if(tokens.empty()) continue;
+if(tokens[0]=="exit") break;
+if(tokens[0]=="cd"){
+const char* path = tokens.size()>1?tokens[1].c_str():getenv("HOME");
+if(chdir(path)!=0) perror("cd");
+continue;
+}
+// prepare argv
+vector<char*> argv(tokens.size()+1);
+for(size_t i=0;i<tokens.size();++i) argv[i] = strdup(tokens[i].c_str());
+argv[tokens.size()] = nullptr;
+pid_t pid = fork();
+if(pid==0){
+execvp(argv[0], argv.data());
+perror("exec");
+exit(127);
+} else if(pid>0){
+int status; waitpid(pid, &status, 0);
+} else perror("fork");
+for(char* p: argv) if(p) free(p);
+}
+return 0;
+}
